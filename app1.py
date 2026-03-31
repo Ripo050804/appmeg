@@ -20,46 +20,8 @@ import cv2
 st.set_page_config(
     page_title="Klasifikasi Batu Megalitikum",
     page_icon="🪨",
-    layout="centered",
-    initial_sidebar_state="collapsed"
+    layout="centered"
 )
-
-# ==============================================
-# CUSTOM CSS YANG DIREVISI (TANPA ELEMEN KOMPLEKS)
-# ==============================================
-st.markdown("""
-<style>
-    .stApp {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-    }
-    
-    .main-header {
-        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-        color: white;
-        padding: 1.5rem;
-        border-radius: 10px;
-        margin-bottom: 1.5rem;
-        text-align: center;
-    }
-    
-    .stButton > button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        width: 100%;
-        padding: 0.5rem 1rem;
-        border-radius: 8px;
-        font-weight: 600;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        transition: all 0.3s ease;
-    }
-    
-    footer {visibility: hidden;}
-</style>
-""", unsafe_allow_html=True)
 
 # ==============================================
 # KONFIGURASI GOOGLE DRIVE
@@ -97,14 +59,12 @@ def download_file_from_drive(url, filepath):
     try:
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         
-        # Extract file ID
         if "id=" in url:
             file_id = url.split("id=")[1].split("&")[0]
             download_url = f"https://drive.google.com/uc?export=download&confirm=t&id={file_id}"
         else:
             download_url = url
         
-        # Download file
         response = requests.get(download_url, stream=True)
         response.raise_for_status()
         
@@ -131,14 +91,12 @@ def load_tflite_model():
         cache_dir = pathlib.Path(DRIVE_CONFIG["cache_dir"])
         model_path = cache_dir / "megalitikum_model.tflite"
         
-        # Download jika belum ada
         if not model_path.exists():
             with st.spinner("Mengunduh model dari Google Drive..."):
                 if not download_file_from_drive(DRIVE_CONFIG["model_url"], str(model_path)):
                     return None, None, None
-                st.success("Model berhasil diunduh!")
+                st.success("✅ Model berhasil diunduh!")
         
-        # Load model
         interpreter = tf.lite.Interpreter(model_path=str(model_path))
         interpreter.allocate_tensors()
         
@@ -148,7 +106,7 @@ def load_tflite_model():
         return interpreter, input_details, output_details
         
     except ImportError:
-        st.error("TensorFlow tidak terinstal. Silakan instal dengan: pip install tensorflow")
+        st.error("TensorFlow tidak terinstal.")
         return None, None, None
     except Exception as e:
         st.error(f"Gagal memuat model: {str(e)}")
@@ -161,14 +119,12 @@ def load_class_names():
         cache_dir = pathlib.Path(DRIVE_CONFIG["cache_dir"])
         class_path = cache_dir / "class_names.json"
         
-        # Download jika belum ada
         if not class_path.exists():
             with st.spinner("Mengunduh data kelas..."):
                 if not download_file_from_drive(DRIVE_CONFIG["class_names_url"], str(class_path)):
                     return list(DESKRIPSI_KELAS.keys())
-                st.success("Data kelas berhasil diunduh!")
+                st.success("✅ Data kelas berhasil diunduh!")
         
-        # Load JSON
         with open(class_path, 'r', encoding='utf-8') as f:
             class_names = json.load(f)
             return class_names
@@ -185,33 +141,27 @@ def is_megalith_image(image):
     try:
         img_array = np.array(image.convert('RGB'))
         
-        # Analisis warna
         r_mean = np.mean(img_array[:,:,0])
         g_mean = np.mean(img_array[:,:,1])
         b_mean = np.mean(img_array[:,:,2])
         
-        # Deteksi warna hijau (tumbuhan)
         if g_mean > r_mean * 1.3 and g_mean > b_mean * 1.3:
             return False, "Gambar didominasi warna hijau (mungkin tumbuhan)"
         
-        # Deteksi warna biru (langit/air)
         if b_mean > r_mean * 1.4 and b_mean > g_mean * 1.4:
             return False, "Gambar didominasi warna biru (mungkin langit/air)"
         
-        # Analisis tekstur
         gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
         texture_variance = np.var(gray)
         
         if texture_variance < MIN_TEXTURE_VARIANCE:
             return False, "Tekstur terlalu halus untuk dikategorikan batu"
         
-        # Analisis ketajaman
         laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
         
         if laplacian_var < 100:
             return False, "Gambar terlalu blur, detail tidak jelas"
         
-        # Analisis brightness
         brightness = np.mean(gray)
         
         if brightness < 40:
@@ -273,12 +223,8 @@ def buat_pdf_hasil(nama_file, kelas, confidence, top3, deskripsi):
 # ==============================================
 # UI HEADER
 # ==============================================
-st.markdown("""
-<div class="main-header">
-    <h1>🪨 Klasifikasi Batu Megalitikum</h1>
-    <p>Sistem Identifikasi Otomatis Berbasis Deep Learning</p>
-</div>
-""", unsafe_allow_html=True)
+st.title("🪨 Klasifikasi Batu Megalitikum")
+st.caption("Sistem Identifikasi Otomatis Berbasis Deep Learning")
 
 # ==============================================
 # SIDEBAR INFO
@@ -286,21 +232,20 @@ st.markdown("""
 with st.sidebar:
     st.markdown("### 📖 Panduan Penggunaan")
     st.markdown("""
-    1. Upload gambar batu megalitikum
-    2. Klik tombol klasifikasi
-    3. Lihat hasil prediksi
-    4. Download laporan PDF
+    1. Pilih sumber gambar (upload atau kamera)
+    2. Pastikan foto batu terlihat jelas
+    3. Klik tombol klasifikasi
+    4. Lihat hasil dan download laporan
+    """)
     
-    ### 🗿 Kelas yang Didukung:
-    - Arca
-    - Dolmen
-    - Menhir
-    - Dakon
-    - Batu Datar
-    - Kubur Batu
-    - Lesung Batu
+    st.markdown("### 🗿 Kelas yang Didukung")
+    kelas_list = ["Arca", "Dolmen", "Menhir", "Dakon", "Batu Datar", "Kubur Batu", "Lesung Batu"]
+    for k in kelas_list:
+        st.markdown(f"- {k}")
     
-    ### 📸 Kriteria Gambar:
+    st.markdown("---")
+    st.markdown("### 📸 Kriteria Gambar")
+    st.markdown("""
     - Format: JPG, JPEG, PNG
     - Pencahayaan cukup
     - Objek batu terlihat jelas
@@ -321,7 +266,7 @@ if interpreter is None:
 # ==============================================
 # MAIN INTERFACE
 # ==============================================
-st.markdown("### 📤 Upload Foto")
+st.markdown("### 📤 Upload atau Ambil Foto")
 
 # Pilihan sumber gambar
 sumber = st.radio(
@@ -333,10 +278,10 @@ sumber = st.radio(
 gambar = None
 if sumber == "Upload File":
     gambar = st.file_uploader(
-    "Pilih file gambar",
-    type=['jpg', 'jpeg', 'png'],
-    help="Format yang didukung: JPG, JPEG, PNG"
-)
+        "Pilih file gambar",
+        type=['jpg', 'jpeg', 'png'],
+        help="Format yang didukung: JPG, JPEG, PNG"
+    )
 else:
     st.info("📷 Pastikan pencahayaan cukup saat mengambil foto")
     gambar = st.camera_input("Ambil foto")
@@ -348,7 +293,7 @@ if gambar:
     # Tampilkan gambar
     st.image(image, caption="Gambar yang diupload", use_container_width=True)
     
-    # Detail gambar
+    # Detail gambar dalam expander
     with st.expander("📊 Detail Gambar"):
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -366,13 +311,13 @@ if gambar:
     
     if not is_valid:
         st.warning(f"⚠️ {reason}")
-        st.info("""
-        **Rekomendasi:**
-        - Foto batu secara langsung dengan jarak dekat
-        - Gunakan pencahayaan alami atau cukup terang
-        - Hindari objek lain yang mendominasi frame
-        - Pastikan fokus kamera pada tekstur batu
-        """)
+        with st.expander("💡 Rekomendasi"):
+            st.markdown("""
+            - Foto batu secara langsung dengan jarak dekat
+            - Gunakan pencahayaan alami atau cukup terang
+            - Hindari objek lain yang mendominasi frame
+            - Pastikan fokus kamera pada tekstur batu
+            """)
     else:
         st.success(f"✅ {reason}")
         
@@ -401,10 +346,12 @@ if gambar:
                 # Hasil berhasil
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.metric("Kelas Terdeteksi", pred_class)
+                    st.metric("🏷️ Kelas Terdeteksi", pred_class)
                 with col2:
-                    color = "green" if confidence > 0.8 else "orange"
-                    st.metric("Confidence", f"{confidence:.1%}")
+                    if confidence > 0.8:
+                        st.metric("📈 Confidence", f"{confidence:.1%}", delta="Tinggi")
+                    else:
+                        st.metric("📈 Confidence", f"{confidence:.1%}", delta="Sedang")
                 
                 st.markdown("#### 📝 Deskripsi")
                 st.info(DESKRIPSI_KELAS.get(pred_class, "Deskripsi tidak tersedia untuk kelas ini."))
@@ -442,8 +389,8 @@ if gambar:
                 
             else:
                 # Confidence rendah
-                st.warning(f"⚠️ Hasil Kurang Yakin (Confidence: {confidence:.1%})")
-                st.info(f"**Prediksi terbaik:** {pred_class}\n\n💡 Saran: Coba ambil foto dengan pencahayaan lebih baik atau sudut yang lebih jelas.")
+                st.warning(f"⚠️ Hasil Kurang Yakin")
+                st.info(f"**Prediksi terbaik:** {pred_class}\n\n**Confidence:** {confidence:.1%}\n\n💡 Saran: Coba ambil foto dengan pencahayaan lebih baik atau sudut yang lebih jelas.")
                 
                 st.markdown("#### 📊 Semua Prediksi")
                 for i, (cls, conf) in enumerate(top_3, 1):
