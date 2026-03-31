@@ -10,11 +10,9 @@ import json
 import os
 import time
 import pathlib
-import tempfile
 import requests
 from fpdf import FPDF
 import cv2
-from io import BytesIO
 
 # ==============================================
 # KONFIGURASI HALAMAN
@@ -23,138 +21,52 @@ st.set_page_config(
     page_title="Klasifikasi Batu Megalitikum",
     page_icon="🪨",
     layout="centered",
-    initial_sidebar_state="collapsed",
-    menu_items=None
+    initial_sidebar_state="collapsed"
 )
 
 # ==============================================
-# CUSTOM CSS UNTUK MOBILE & TAMPILAN PROFESIONAL
+# CUSTOM CSS YANG DIREVISI (TANPA ELEMEN KOMPLEKS)
 # ==============================================
 st.markdown("""
 <style>
     .stApp {
         background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-        min-height: 100vh;
     }
     
     .main-header {
         background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
         color: white;
-        padding: 2rem 1rem;
-        border-radius: 15px;
+        padding: 1.5rem;
+        border-radius: 10px;
         margin-bottom: 1.5rem;
         text-align: center;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-    }
-    
-    .main-header h1 {
-        margin: 0;
-        font-size: 2rem;
-        font-weight: 700;
-        letter-spacing: 0.5px;
-    }
-    
-    .main-header p {
-        margin: 0.5rem 0 0;
-        font-size: 0.95rem;
-        opacity: 0.95;
-        font-weight: 300;
-    }
-    
-    .info-card {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 12px;
-        margin: 1rem 0;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-        border-left: 4px solid #2a5298;
-    }
-    
-    .success-card {
-        background: #d4edda;
-        border-left-color: #28a745;
-        color: #155724;
-    }
-    
-    .warning-card {
-        background: #fff3cd;
-        border-left-color: #ffc107;
-        color: #856404;
-    }
-    
-    .error-card {
-        background: #f8d7da;
-        border-left-color: #dc3545;
-        color: #721c24;
     }
     
     .stButton > button {
-        width: 100%;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
         border: none;
-        padding: 0.75rem 1.5rem;
+        width: 100%;
+        padding: 0.5rem 1rem;
         border-radius: 8px;
         font-weight: 600;
-        font-size: 1rem;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     
     .stButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+        transition: all 0.3s ease;
     }
     
-    .image-container {
-        border-radius: 10px;
-        overflow: hidden;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        margin: 1rem 0;
-    }
-    
-    .result-box {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 12px;
-        margin: 1rem 0;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-    }
-    
-    .confidence-high {
-        color: #28a745;
-        font-weight: 700;
-        font-size: 1.3rem;
-    }
-    
-    .confidence-medium {
-        color: #ffc107;
-        font-weight: 700;
-        font-size: 1.3rem;
-    }
-    
-    @media (max-width: 768px) {
-        .main-header h1 { font-size: 1.5rem; }
-        .main-header p { font-size: 0.85rem; }
-        .info-card, .result-box { padding: 1rem; }
-    }
-    
-    #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    .st-emotion-cache-16txtl3 { padding: 1rem; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================
-# KONFIGURASI GOOGLE DRIVE - FILE ID DARI LINK ANDA
+# KONFIGURASI GOOGLE DRIVE
 # ==============================================
 DRIVE_CONFIG = {
-    # Model: https://drive.google.com/file/d/1hRmWsJ8EmqINdMG1GCTuTjLdOfWr3JOx/view
     "model_url": "https://drive.google.com/uc?export=download&id=1hRmWsJ8EmqINdMG1GCTuTjLdOfWr3JOx",
-    
-    # Class names: https://drive.google.com/file/d/1xHJ7tIuuUt-FEcGGTdxS2N5NvH03h6AK/view
     "class_names_url": "https://drive.google.com/uc?export=download&id=1xHJ7tIuuUt-FEcGGTdxS2N5NvH03h6AK",
-    
     "cache_dir": "/tmp/megalith_models"
 }
 
@@ -192,37 +104,17 @@ def download_file_from_drive(url, filepath):
         else:
             download_url = url
         
-        # Session untuk handle cookies
-        session = requests.Session()
-        
-        # Request pertama untuk mendapatkan confirmation token jika diperlukan
-        response = session.get(download_url, stream=True)
-        
-        # Cek jika perlu confirmation
-        if "confirm=" in response.url or response.status_code == 403:
-            # Extract confirmation token
-            import re
-            confirm_token = re.search("confirm=([\\w-]+)", response.url)
-            if confirm_token:
-                download_url = f"https://drive.google.com/uc?export=download&confirm={confirm_token.group(1)}&id={file_id}"
-                response = session.get(download_url, stream=True)
-        
+        # Download file
+        response = requests.get(download_url, stream=True)
         response.raise_for_status()
-        
-        total_size = int(response.headers.get('content-length', 0))
-        downloaded = 0
         
         with open(filepath, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
-                    downloaded += len(chunk)
         
         return True
         
-    except requests.exceptions.RequestException as e:
-        st.error(f"Error koneksi: {str(e)}")
-        return False
     except Exception as e:
         st.error(f"Gagal download file: {str(e)}")
         return False
@@ -241,12 +133,10 @@ def load_tflite_model():
         
         # Download jika belum ada
         if not model_path.exists():
-            with st.status("Mengunduh model dari Google Drive...", expanded=True) as status:
-                st.write("Menghubungkan ke Google Drive...")
+            with st.spinner("Mengunduh model dari Google Drive..."):
                 if not download_file_from_drive(DRIVE_CONFIG["model_url"], str(model_path)):
-                    status.update(label="Gagal mengunduh model", state="error")
                     return None, None, None
-                status.update(label="Model berhasil diunduh", state="complete")
+                st.success("Model berhasil diunduh!")
         
         # Load model
         interpreter = tf.lite.Interpreter(model_path=str(model_path))
@@ -273,11 +163,10 @@ def load_class_names():
         
         # Download jika belum ada
         if not class_path.exists():
-            with st.status("Mengunduh data kelas...", expanded=True) as status:
+            with st.spinner("Mengunduh data kelas..."):
                 if not download_file_from_drive(DRIVE_CONFIG["class_names_url"], str(class_path)):
-                    status.update(label="Gagal mengunduh data kelas", state="error")
                     return list(DESKRIPSI_KELAS.keys())
-                status.update(label="Data kelas berhasil diunduh", state="complete")
+                st.success("Data kelas berhasil diunduh!")
         
         # Load JSON
         with open(class_path, 'r', encoding='utf-8') as f:
@@ -303,38 +192,37 @@ def is_megalith_image(image):
         
         # Deteksi warna hijau (tumbuhan)
         if g_mean > r_mean * 1.3 and g_mean > b_mean * 1.3:
-            return False, "Gambar didominasi warna hijau (mungkin tumbuhan)", 0.1
+            return False, "Gambar didominasi warna hijau (mungkin tumbuhan)"
         
         # Deteksi warna biru (langit/air)
         if b_mean > r_mean * 1.4 and b_mean > g_mean * 1.4:
-            return False, "Gambar didominasi warna biru (mungkin langit/air)", 0.1
+            return False, "Gambar didominasi warna biru (mungkin langit/air)"
         
         # Analisis tekstur
         gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
         texture_variance = np.var(gray)
         
         if texture_variance < MIN_TEXTURE_VARIANCE:
-            return False, "Tekstur terlalu halus untuk dikategorikan batu", 0.3
+            return False, "Tekstur terlalu halus untuk dikategorikan batu"
         
         # Analisis ketajaman
         laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
         
         if laplacian_var < 100:
-            return False, "Gambar terlalu blur, detail tidak jelas", 0.2
+            return False, "Gambar terlalu blur, detail tidak jelas"
         
         # Analisis brightness
         brightness = np.mean(gray)
         
         if brightness < 40:
-            return False, "Gambar terlalu gelap", 0.2
+            return False, "Gambar terlalu gelap"
         if brightness > 220:
-            return False, "Gambar terlalu terang (overexposed)", 0.2
+            return False, "Gambar terlalu terang (overexposed)"
         
-        score = 0.7
-        return True, "Gambar memenuhi kriteria analisis", score
+        return True, "Gambar memenuhi kriteria analisis"
         
     except Exception as e:
-        return False, f"Error saat analisis: {str(e)}", 0
+        return False, f"Error saat analisis: {str(e)}"
 
 # ==============================================
 # FUNGSI PREDIKSI
@@ -387,7 +275,7 @@ def buat_pdf_hasil(nama_file, kelas, confidence, top3, deskripsi):
 # ==============================================
 st.markdown("""
 <div class="main-header">
-    <h1>Klasifikasi Batu Megalitikum</h1>
+    <h1>🪨 Klasifikasi Batu Megalitikum</h1>
     <p>Sistem Identifikasi Otomatis Berbasis Deep Learning</p>
 </div>
 """, unsafe_allow_html=True)
@@ -396,14 +284,14 @@ st.markdown("""
 # SIDEBAR INFO
 # ==============================================
 with st.sidebar:
-    st.markdown("### Panduan Penggunaan")
+    st.markdown("### 📖 Panduan Penggunaan")
     st.markdown("""
-    1. Pilih sumber gambar (upload atau kamera)
-    2. Pastikan foto batu terlihat jelas
-    3. Klik tombol klasifikasi
-    4. Lihat hasil dan download laporan
+    1. Upload gambar batu megalitikum
+    2. Klik tombol klasifikasi
+    3. Lihat hasil prediksi
+    4. Download laporan PDF
     
-    **Kelas yang Didukung:**
+    ### 🗿 Kelas yang Didukung:
     - Arca
     - Dolmen
     - Menhir
@@ -411,14 +299,13 @@ with st.sidebar:
     - Batu Datar
     - Kubur Batu
     - Lesung Batu
-    """)
     
-    st.markdown("---")
-    st.markdown("**Kriteria Gambar:**")
-    st.markdown("- Format: JPG, JPEG, PNG")
-    st.markdown("- Pencahayaan cukup")
+    ### 📸 Kriteria Gambar:
+    - Format: JPG, JPEG, PNG
+    - Pencahayaan cukup
     - Objek batu terlihat jelas
-    - Hindari background ramai")
+    - Hindari background ramai
+    """)
 
 # ==============================================
 # LOAD MODEL
@@ -428,32 +315,30 @@ with st.spinner("Memuat model..."):
     class_names = load_class_names()
 
 if interpreter is None:
-    st.markdown('<div class="error-card"><strong>Error:</strong> Model tidak dapat dimuat. Periksa koneksi internet dan pastikan file tersedia di Google Drive.</div>', unsafe_allow_html=True)
+    st.error("❌ Model tidak dapat dimuat. Periksa koneksi internet dan pastikan file tersedia di Google Drive.")
     st.stop()
 
 # ==============================================
 # MAIN INTERFACE
 # ==============================================
-st.markdown("### Upload atau Ambil Foto")
+st.markdown("### 📤 Upload Foto")
 
 # Pilihan sumber gambar
 sumber = st.radio(
     "Pilih sumber gambar:",
     ["Upload File", "Ambil Foto Kamera"],
-    horizontal=True,
-    label_visibility="collapsed"
+    horizontal=True
 )
 
 gambar = None
 if sumber == "Upload File":
     gambar = st.file_uploader(
-        "Pilih file gambar",
-        type=['jpg', 'jpeg', 'png'],
-        label_visibility="collapsed",
-        help="Format yang didukung: JPG, JPEG, PNG"
-    )
+    "Pilih file gambar",
+    type=['jpg', 'jpeg', 'png'],
+    help="Format yang didukung: JPG, JPEG, PNG"
+)
 else:
-    st.info("Pastikan pencahayaan cukup saat mengambil foto")
+    st.info("📷 Pastikan pencahayaan cukup saat mengambil foto")
     gambar = st.camera_input("Ambil foto")
 
 if gambar:
@@ -461,27 +346,27 @@ if gambar:
     image = Image.open(gambar)
     
     # Tampilkan gambar
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.markdown('<div class="image-container">', unsafe_allow_html=True)
-        st.image(image, caption="Gambar yang diupload", use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+    st.image(image, caption="Gambar yang diupload", use_container_width=True)
     
-    with col2:
-        st.markdown("### Detail Gambar")
-        st.write(f"**Ukuran:** {image.size[0]} x {image.size[1]} px")
-        st.write(f"**Format:** {image.format if image.format else 'Unknown'}")
-        st.write(f"**Mode:** {image.mode}")
+    # Detail gambar
+    with st.expander("📊 Detail Gambar"):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Ukuran", f"{image.size[0]} x {image.size[1]} px")
+        with col2:
+            st.metric("Format", image.format if image.format else "Unknown")
+        with col3:
+            st.metric("Mode", image.mode)
     
     # Analisis awal
-    st.markdown("### Verifikasi Gambar")
+    st.markdown("### 🔍 Verifikasi Gambar")
     
     with st.spinner("Memeriksa kualitas gambar..."):
-        is_valid, reason, score = is_megalith_image(image)
+        is_valid, reason = is_megalith_image(image)
     
     if not is_valid:
-        st.markdown(f'<div class="error-card"><strong>Gambar Tidak Valid</strong><br>{reason}</div>', unsafe_allow_html=True)
-        st.markdown("""
+        st.warning(f"⚠️ {reason}")
+        st.info("""
         **Rekomendasi:**
         - Foto batu secara langsung dengan jarak dekat
         - Gunakan pencahayaan alami atau cukup terang
@@ -489,10 +374,10 @@ if gambar:
         - Pastikan fokus kamera pada tekstur batu
         """)
     else:
-        st.markdown(f'<div class="success-card"><strong>Gambar Valid</strong><br>{reason}</div>', unsafe_allow_html=True)
+        st.success(f"✅ {reason}")
         
         # Tombol klasifikasi
-        if st.button("Mulai Klasifikasi", type="primary"):
+        if st.button("🚀 Mulai Klasifikasi", type="primary"):
             with st.spinner("Sedang menganalisis gambar..."):
                 # Enhancement untuk prediksi lebih akurat
                 img_enhanced = image.filter(ImageFilter.SHARPEN)
@@ -510,47 +395,32 @@ if gambar:
                 top_3 = [(class_names[i] if i < len(class_names) else "Unknown", float(predictions[i])) for i in top_3_idx]
             
             # Tampilkan hasil
-            st.markdown("### Hasil Klasifikasi")
+            st.markdown("### 📊 Hasil Klasifikasi")
             
             if confidence >= CONFIDENCE_THRESHOLD:
                 # Hasil berhasil
-                conf_class = "confidence-high" if confidence > 0.8 else "confidence-medium"
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Kelas Terdeteksi", pred_class)
+                with col2:
+                    color = "green" if confidence > 0.8 else "orange"
+                    st.metric("Confidence", f"{confidence:.1%}")
                 
-                st.markdown(f"""
-                <div class="result-box">
-                    <h3 style="color: #2a5298; margin-top: 0; margin-bottom: 0.5rem;">{pred_class}</h3>
-                    <p class="{conf_class}" style="margin: 0 0 1rem 0;">{confidence:.1%} Confidence</p>
-                    <hr style="border: none; border-top: 1px solid #ddd; margin: 1rem 0;">
-                    <p style="margin: 0 0 0.5rem 0;"><strong>Deskripsi:</strong></p>
-                    <p style="text-align: justify; margin: 0; color: #555;">{DESKRIPSI_KELAS.get(pred_class, 'Deskripsi tidak tersedia untuk kelas ini.')}</p>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown("#### 📝 Deskripsi")
+                st.info(DESKRIPSI_KELAS.get(pred_class, "Deskripsi tidak tersedia untuk kelas ini."))
                 
-                # Top 3 predictions dengan progress bar
-                st.markdown("### Prediksi Lainnya")
-                for i, (cls, conf) in enumerate(top_3, 1):
-                    if i > 1:
-                        bar_width = min(int(conf * 100), 100)
-                        st.markdown(f"""
-                        <div style="margin: 0.75rem 0;">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem; font-size: 0.9rem;">
-                                <span>{i}. {cls}</span>
-                                <span style="color: #666;">{conf:.1%}</span>
-                            </div>
-                            <div style="background: #e0e0e0; border-radius: 4px; height: 8px; overflow: hidden;">
-                                <div style="background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); 
-                                            width: {bar_width}%; height: 100%; border-radius: 4px; transition: width 0.3s ease;"></div>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                # Top 3 predictions
+                st.markdown("#### 🏆 Top 3 Prediksi")
+                for i, (cls, conf) in enumerate(top_3[1:], 2):
+                    st.progress(conf, text=f"{i}. {cls}: {conf:.1%}")
                 
                 # Grafik distribusi probabilitas
-                st.markdown("### Distribusi Probabilitas")
+                st.markdown("#### 📈 Distribusi Probabilitas")
                 chart_data = {
                     "Kelas": [class_names[i] if i < len(class_names) else "Unknown" for i in top_3_idx],
                     "Probabilitas": [float(predictions[i]) for i in top_3_idx]
                 }
-                st.bar_chart(chart_data, x="Kelas", y="Probabilitas", height=250)
+                st.bar_chart(chart_data, x="Kelas", y="Probabilitas")
                 
                 # Download PDF
                 pdf_bytes = buat_pdf_hasil(
@@ -562,7 +432,7 @@ if gambar:
                 )
                 
                 st.download_button(
-                    label="Download Laporan PDF",
+                    label="📥 Download Laporan PDF",
                     data=pdf_bytes,
                     file_name=f"klasifikasi_{pred_class}_{int(time.time())}.pdf",
                     mime="application/pdf",
@@ -572,28 +442,18 @@ if gambar:
                 
             else:
                 # Confidence rendah
-                st.markdown(f"""
-                <div class="warning-card">
-                    <strong>Hasil Kurang Yakin</strong><br>
-                    Model memberikan confidence {confidence:.1%} yang berada di bawah threshold {CONFIDENCE_THRESHOLD:.0%}.
-                    <br><br>
-                    <strong>Prediksi terbaik:</strong> {pred_class}
-                    <br><br>
-                    <em>Saran: Coba ambil foto dengan pencahayaan lebih baik atau sudut yang lebih jelas.</em>
-                </div>
-                """, unsafe_allow_html=True)
+                st.warning(f"⚠️ Hasil Kurang Yakin (Confidence: {confidence:.1%})")
+                st.info(f"**Prediksi terbaik:** {pred_class}\n\n💡 Saran: Coba ambil foto dengan pencahayaan lebih baik atau sudut yang lebih jelas.")
                 
-                st.markdown("### Semua Prediksi")
+                st.markdown("#### 📊 Semua Prediksi")
                 for i, (cls, conf) in enumerate(top_3, 1):
-                    st.write(f"{i}. {cls}: {conf:.1%}")
+                    st.progress(conf, text=f"{i}. {cls}: {conf:.1%}")
 
 # ==============================================
 # FOOTER
 # ==============================================
 st.markdown("---")
-st.markdown("""
-<div style="text-align: center; color: #666; padding: 1rem; font-size: 0.85rem;">
-    <p>Aplikasi Klasifikasi Batu Megalitikum</p>
-    <p>Berdasarkan Penelitian Deep Learning</p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(
+    "<p style='text-align: center; color: #666; font-size: 0.85rem;'>Aplikasi Klasifikasi Batu Megalitikum | Berdasarkan Penelitian Deep Learning</p>",
+    unsafe_allow_html=True
+)
